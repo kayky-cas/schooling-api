@@ -1,13 +1,15 @@
-use serde::{Serialize, Deserialize};
+use serde::{Deserialize, Serialize};
+use sqlx::FromRow;
 
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, sqlx::Type, Clone)]
+#[sqlx(type_name = "user_role", rename_all = "lowercase")]
 pub enum UserRole {
     Admin,
     Teacher,
-    Student
+    Student,
 }
 
-#[derive(Serialize)]
+#[derive(Serialize, FromRow)]
 pub struct User {
     pub id: String,
     pub name: String,
@@ -15,19 +17,19 @@ pub struct User {
     pub email: String,
     pub password: String,
     pub role: UserRole,
-    is_open: bool
+    is_open: bool,
 }
 
 impl User {
     pub fn new(name: String, cpf: String, email: String, password: String, role: UserRole) -> Self {
-        Self { 
+        Self {
             id: uuid::Uuid::new_v4().to_string(),
             name,
             cpf,
             email,
             password,
             role,
-            is_open: false
+            is_open: false,
         }
     }
 
