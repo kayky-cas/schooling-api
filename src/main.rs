@@ -1,12 +1,8 @@
 mod api;
 mod model;
 
-use actix_web::{
-    middleware::Logger,
-    web::{self, Data},
-    App, HttpServer,
-};
-use api::auth::{login, sign_in};
+use actix_web::{middleware::Logger, web::Data, App, HttpServer};
+use api::{auth, school};
 use dotenv::dotenv;
 use sqlx::{postgres::PgPoolOptions, Pool, Postgres};
 
@@ -24,7 +20,8 @@ async fn main() -> std::io::Result<()> {
 
     dotenv().ok();
 
-    let datatbase_url = std::env::var("DATABASE_URL").expect("DATABASE_URL must be set!");
+    let datatbase_url = std::env::var("DATABASE_URL")
+        .expect("DATABASE_URL must be set!");
 
     let app_state = AppState {
         db: PgPoolOptions::new()
@@ -40,7 +37,8 @@ async fn main() -> std::io::Result<()> {
         App::new()
             .app_data(Data::new(app_state.clone()))
             .wrap(logger)
-            .service(web::scope("/auth").service(login).service(sign_in))
+            .service(auth())
+            .service(school())
     })
     .bind(("127.0.0.1", 3000))?
     .run()

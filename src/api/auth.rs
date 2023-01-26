@@ -1,3 +1,5 @@
+use std::ops::Deref;
+
 use actix_web::{
     http::{header::ContentType, StatusCode},
     post,
@@ -7,18 +9,16 @@ use actix_web::{
 use derive_more::Display;
 use jsonwebtoken::{encode, EncodingKey, Header};
 use serde::{Deserialize, Serialize};
-use sqlx::FromRow;
+use sqlx::{error::DatabaseError, postgres::PgDatabaseError, FromRow};
 
-use crate::{
-    model::user::{User, UserRole},
-    AppState,
-};
+use crate::{model::user::UserRole, AppState};
 
 #[derive(Debug, Display)]
 pub enum AuthError {
-    BadAuthRequest(&'static str),
-    AuthConflict(&'static str),
+    BadAuthRequest(String),
+    AuthConflict(String),
     TokenParse,
+    DatabaseError,
 }
 
 impl ResponseError for AuthError {
@@ -26,7 +26,7 @@ impl ResponseError for AuthError {
         match self {
             AuthError::BadAuthRequest(_) => StatusCode::BAD_REQUEST,
             AuthError::AuthConflict(_) => StatusCode::CONFLICT,
-            AuthError::TokenParse => StatusCode::INTERNAL_SERVER_ERROR,
+            AuthError::DatabaseError | AuthError::TokenParse => StatusCode::INTERNAL_SERVER_ERROR,
         }
     }
 
@@ -90,7 +90,9 @@ pub async fn login(
     .await;
 
     if let Err(_) = user {
-        return Err(AuthError::BadAuthRequest("Incorrect email or password!"));
+        return Err(AuthError::BadAuthRequest(
+            "Incorrect email or password!".to_owned(),
+        ));
     }
 
     let user = user.unwrap();
@@ -130,7 +132,7 @@ pub async fn sign_in(
     data: Data<AppState>,
 ) -> Result<impl Responder, AuthError> {
     let query = sqlx::query!(
-        "INSERT INTO users (name, cpf, email, password, role) VALUES ($1, $2, $3, $4, $5)",
+        "INSERT INTO users (name, cpf, email, password, role, school_id) VALUES ($1, $2, $3, $4, $5, null)",
         body.name,
         body.cpf,
         body.email,
@@ -141,8 +143,23 @@ pub async fn sign_in(
     .await;
 
     if let Err(query) = query {
-        println!("{:?}", query.to_string());
-        return Err(AuthError::AuthConflict("Email already registred!"));
+        if let Some(query) = query.as_database_error() {
+            let code = query.code().unwrap();
+
+            return Err(match code.to_string().deref() {
+                "22001" => AuthError::BadAuthRequest("Invalid CPF".to_string()),
+                "23505" => AuthError::AuthConflict(
+                    query
+                        .downcast_ref::<PgDatabaseError>()
+                        .detail()
+                        .unwrap()
+                        .to_string(),
+                ),
+                _ => AuthError::BadAuthRequest(query.message().to_string()),
+            });
+        }
+
+        return Err(AuthError::DatabaseError);
     }
 
     Ok(HttpResponse::Created())
